@@ -78,6 +78,13 @@ bool audio_is_fading(enum audio_channel ch)
 
 void audio_bgm_play(const char *name, bool check_playing)
 {
+#ifdef __EMSCRIPTEN__
+	// Scene-aware web prefetch can prepare a decoded browser AudioBuffer. Start
+	// it synchronously by name, avoiding a multi-megabyte JS/Wasm round trip and
+	// an Asyncify unwind on the scene-transition path.
+	if (channel_play_cached_name(&channels[AUDIO_CH_BGM], name, check_playing))
+		return;
+#endif
 	struct archive_data *file = asset_bgm_load(name);
 	if (!file) {
 		WARNING("Failed to load BGM file: %s", name);
@@ -123,6 +130,10 @@ void audio_voice_play(const char *name, unsigned ch)
 		WARNING("Invalid voice channel: %u", ch);
 		return;
 	}
+#ifdef __EMSCRIPTEN__
+	channel_play_voice_name(&channels[AUDIO_CH_VOICE(ch)], name);
+	return;
+#endif
 	struct archive_data *file = asset_voice_load(name);
 	if (!file) {
 		WARNING("Failed to load voice file: %s", name);
@@ -143,6 +154,10 @@ void audio_voice_stop(unsigned ch)
 
 void audio_voicesub_play(const char *name)
 {
+#ifdef __EMSCRIPTEN__
+	channel_play_voice_name(&channels[AUDIO_CH_VOICE1], name);
+	return;
+#endif
 	struct archive_data *file = asset_voicesub_load(name);
 	if (!file) {
 		WARNING("Failed to load voicesub file: %s", name);

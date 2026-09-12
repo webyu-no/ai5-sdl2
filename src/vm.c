@@ -42,6 +42,9 @@
 #include "menu.h"
 #include "texthook.h"
 #include "vm_private.h"
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#endif
 
 struct vm vm = {0};
 struct memory memory = {0};
@@ -153,6 +156,11 @@ void vm_load_data_file(const char *name, uint32_t offset)
 		goto end;
 	}
 	vm_load_file(data, offset);
+#ifdef __EMSCRIPTEN__
+	const char *ext = strrchr(name, '.');
+	if (ext && !strcasecmp(ext, ".a6"))
+		web_hotspot_table_loaded(mem_mes_name(), name, offset);
+#endif
 end:
 	archive_data_release(data);
 }
@@ -954,14 +962,22 @@ void vm_stmt_jz(void)
 {
 	uint32_t val = game->vm.eval();
 	uint32_t ptr = vm_read_dword();
-	if (val == 1)
-		return;
-	vm.ip.ptr = ptr;
+	if (val != 1)
+		vm.ip.ptr = ptr;
+#ifdef __EMSCRIPTEN__
+	// The condition has now selected the real script path. Give the browser the
+	// resolved instruction position so it can replace scene-wide BGM guesses
+	// before the eventual playback command reaches the decoder.
+	web_script_progress(mem_mes_name(), vm.ip.ptr);
+#endif
 }
 
 void vm_stmt_jmp(void)
 {
 	vm.ip.ptr = le_get32(vm.ip.code, vm.ip.ptr);
+#ifdef __EMSCRIPTEN__
+	web_script_progress(mem_mes_name(), vm.ip.ptr);
+#endif
 }
 
 static void _vm_stmt_sys(void)
@@ -1006,7 +1022,11 @@ void vm_stmt_mesjmp(void)
 	struct param_list params = {0};
 	game->vm.read_params(&params);
 
-	vm_load_mes(vm_string_param(&params, 0));
+	const char *name = vm_string_param(&params, 0);
+#ifdef __EMSCRIPTEN__
+	web_scene_enter(name);
+#endif
+	vm_load_mes((char *)name);
 
 	vm_flag_on(FLAG_RETURN);
 }
@@ -1016,6 +1036,14 @@ static void _vm_stmt_mescall(bool save_procedures)
 	struct param_list params = {0};
 	game->vm.read_params(&params);
 	vm_string_param(&params, 0);
+
+#ifdef __EMSCRIPTEN__
+	// Reflector destinations live in the active jewel-save files rather than as
+	// literal jump targets in MAP.MES. Announce the slot before the map is shown
+	// so those real, currently selectable scenes can preload in the background.
+	if (!strcasecmp(params.params[0].str, "MAP.MES"))
+		web_reflector_open(mem_get_var4(9));
+#endif
 
 	// save current VM state
 	struct vm_mes_call *frame = &vm.mes_call_stack[vm.mes_call_stack_ptr++];
@@ -1063,6 +1091,9 @@ void vm_stmt_defmenu(void)
 	uint32_t addr = vm_read_dword();
 	menu_define(vm_expr_param(&params, 0), addr == vm.ip.ptr + 1);
 	vm.ip.ptr = addr;
+#ifdef __EMSCRIPTEN__
+	web_script_progress(mem_mes_name(), vm.ip.ptr);
+#endif
 }
 
 struct aiw_menu_entry aiw_menu_entries[AIW_MAX_MENUS][AIW_MAX_MENU_ENTRIES];
@@ -1169,6 +1200,9 @@ void vm_stmt_defproc(void)
 	vm.procedures[i] = vm.ip;
 	vm.procedures[i].ptr += 4;
 	vm.ip.ptr = vm_read_dword();
+#ifdef __EMSCRIPTEN__
+	web_script_progress(mem_mes_name(), vm.ip.ptr);
+#endif
 }
 
 void vm_stmt_menuexec(void)
@@ -1224,6 +1258,10 @@ retry:
 
 void vm_peek(void)
 {
+#ifdef __EMSCRIPTEN__
+	// Scripts also spin without explicit delays; yield to browser input and audio.
+	web_yield_if_due();
+#endif
 	handle_events();
 	anim_execute();
 	audio_update();

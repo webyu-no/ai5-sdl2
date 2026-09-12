@@ -36,6 +36,7 @@
 #include "sys.h"
 #include "texthook.h"
 #include "vm_private.h"
+#include "web.h"
 
 /*
  * Common System function definitions.
@@ -383,6 +384,11 @@ void sys_wait(struct param_list *params)
 {
 	texthook_commit();
 	if (params->nr_params == 0 || vm_expr_param(params, 0) == 0) {
+#ifdef __EMSCRIPTEN__
+		// Dialogue is fully presented and the VM is waiting for the player. This
+		// is the safest point for one background music decode.
+		web_player_wait(mem_mes_name(), vm.ip.ptr);
+#endif
 		while (true) {
 			if (input_down(INPUT_CTRL)) {
 				vm_peek();
@@ -431,9 +437,31 @@ static bool farcall_addr_valid(uint32_t addr)
 	return addr < sizeof(struct memory);
 }
 
+#ifdef __EMSCRIPTEN__
+static char web_hotspot_scene[128];
+static uint32_t web_hotspot_offset;
+static uint16_t web_hotspot_id = 0xffff;
+
+static void web_notify_hotspot(unsigned offset, unsigned id)
+{
+	const char *scene = mem_mes_name();
+	if (web_hotspot_offset == offset && web_hotspot_id == id &&
+			!strcmp(web_hotspot_scene, scene))
+		return;
+	strncpy(web_hotspot_scene, scene, sizeof(web_hotspot_scene) - 1);
+	web_hotspot_scene[sizeof(web_hotspot_scene) - 1] = '\0';
+	web_hotspot_offset = offset;
+	web_hotspot_id = id;
+	web_hotspot_hover(scene, offset, id);
+}
+#endif
+
 void sys_farcall(struct param_list *params)
 {
 	uint32_t addr = vm_expr_param(params, 0);
+#ifdef __EMSCRIPTEN__
+	if (web_menu_text(addr)) return;
+#endif
 	if (unlikely(!farcall_addr_valid(addr)))
 		VM_ERROR("Tried to farcall to invalid address");
 
@@ -469,6 +497,9 @@ void _sys_get_cursor_segment(unsigned x, unsigned y, uint32_t off)
 		uint16_t id = le_get16(a, 0);
 		if (id == 0xffff) {
 			mem_set_var16(18, 0xffff);
+	#ifdef __EMSCRIPTEN__
+			web_notify_hotspot(off, id);
+	#endif
 			return;
 		}
 		uint16_t x_left = le_get16(a, 2);
@@ -477,6 +508,9 @@ void _sys_get_cursor_segment(unsigned x, unsigned y, uint32_t off)
 		uint16_t y_bot = le_get16(a, 8);
 		if (x >= x_left && x <= x_right && y >= y_top && y <= y_bot) {
 			mem_set_var16(18, id);
+	#ifdef __EMSCRIPTEN__
+			web_notify_hotspot(off, id);
+	#endif
 			return;
 		}
 
@@ -484,6 +518,9 @@ void _sys_get_cursor_segment(unsigned x, unsigned y, uint32_t off)
 	}
 	WARNING("Read past end of buffer in System.check_cursor_pos");
 	mem_set_var16(18, 0);
+#ifdef __EMSCRIPTEN__
+	web_notify_hotspot(off, 0);
+#endif
 
 }
 

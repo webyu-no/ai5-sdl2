@@ -60,6 +60,15 @@ static void classics_audio_fade(enum audio_channel ch, uint8_t vol, bool stop, b
 
 static void classics_audio_fade_out(enum audio_channel ch, uint8_t vol, bool sync)
 {
+	// The original channel-level implementation passed this through the same
+	// direction check as an ordinary fade.  Some YU-NO scripts use this opcode
+	// to restore temporarily lowered music by fading upward to 31; that must
+	// keep the stream playing rather than stop it at the end of the fade.
+	if (vol > audio_vol[ch]) {
+		audio_mixer_fade(ch, get_volume_db(vol), fade_time(audio_vol[ch], vol), false, sync);
+		audio_vol[ch] = vol;
+		return;
+	}
 	if (vol == audio_vol[ch]) {
 		audio_stop(ch);
 		return;

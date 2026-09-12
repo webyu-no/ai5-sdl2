@@ -253,7 +253,15 @@ static inline void vm_timer_tick(vm_timer_t *timer, unsigned ms)
 		vm_delay(ms - delta_t);
 		*timer = t + (ms - delta_t);
 	} else {
+	#ifdef __EMSCRIPTEN__
+		// Browser timers may wake a few milliseconds late (notably with
+		// Firefox's reduced timer precision). Preserve the intended deadline
+		// so that this error does not accumulate once per animation frame.
+		// A long suspension is not animation debt and resets the cadence.
+		*timer = delta_t > 100 ? t : *timer + ms;
+	#else
 		*timer = t;
+	#endif
 	}
 }
 
@@ -263,7 +271,11 @@ static inline bool vm_timer_tick_async(vm_timer_t *timer, unsigned ms)
 	uint32_t delta_t = t - *timer;
 	if (delta_t < ms)
 		return false;
+	#ifdef __EMSCRIPTEN__
+	*timer = delta_t > 100 ? t : *timer + ms;
+	#else
 	*timer = t;
+	#endif
 	return true;
 }
 

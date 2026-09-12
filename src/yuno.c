@@ -15,6 +15,7 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
 #include <SDL.h>
 
 #include "nulib.h"
@@ -36,6 +37,9 @@
 #include "savedata.h"
 #include "sys.h"
 #include "vm_private.h"
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#endif
 
 #define MES_NAME_SIZE 128
 #define VAR4_SIZE 4096
@@ -129,6 +133,9 @@ static void yuno_savedata_load_jewel_save(const char *save_name)
 		cur_var4[i] = load_var4[i];
 	}
 	game->mem_restore();
+#ifdef __EMSCRIPTEN__
+	web_scene_enter(mem_mes_name());
+#endif
 	vm_load_mes(mem_mes_name());
 	vm_flag_on(FLAG_RETURN);
 }
@@ -611,7 +618,14 @@ static void util_bgm_play(struct param_list *params)
 	//      music room (due to prior fade out).
 	if (!strcmp(mem_mes_name(), "MUSICMODE.MES"))
 		audio_set_volume(AUDIO_CH_BGM, 0);
+#ifdef __EMSCRIPTEN__
+	// Scene dispatchers frequently repeat the BGM selected by the location they
+	// enter. Preserve the exact active web track; the backend still restarts it
+	// if it has ended or is fading, and always replaces a different track.
+	audio_bgm_play(vm_string_param(params, 1), true);
+#else
 	audio_bgm_play(vm_string_param(params, 1), false);
+#endif
 }
 
 static void util_bgm_is_playing(struct param_list *params)
@@ -796,12 +810,29 @@ static void yuno_reflector_animation(void)
 	}
 
 	uint32_t now_t = vm_get_ticks();
-	if (now_t - t < FRAME_TIME)
-		return;
+	unsigned elapsed_frames = 1;
+	if (!t) {
+		// Preserve the original immediate first frame.
+		t = now_t;
+	} else {
+		if (now_t - t < FRAME_TIME)
+			return;
+#ifdef __EMSCRIPTEN__
+		elapsed_frames = (now_t - t) / FRAME_TIME;
+		// This animation has no bytecode side effects, so even a long web
+		// scheduling or asset-loading gap can jump directly to the correct
+		// wall-clock phase. Never discard elapsed time here.
+		t += elapsed_frames * FRAME_TIME;
+#else
+		t = now_t;
+#endif
+	}
 
+	// Preserve elapsed time instead of making every late web poll permanently
+	// extend this animation. Only the newest due frame needs to be drawn.
+	frame = (frame + elapsed_frames - 1) % ARRAY_SIZE(yuno_reflector_frames);
 	draw_frame(yuno_reflector_frames[frame]);
 	frame = (frame + 1) % ARRAY_SIZE(yuno_reflector_frames);
-	t = now_t;
 	gfx_screen_dirty();
 }
 

@@ -23,6 +23,31 @@
 #include "ai5.h"
 #include "asset.h"
 #include "game.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+EM_JS(uint8_t *, web_file_read_cached, (const char *name, uint32_t *size), {
+    let key = UTF8ToString(name).split(String.fromCharCode(92)).join('/').toUpperCase();
+    if (!Module.webYuno.manifest.assets[key] && key.endsWith('.WAV'))
+        key = key.slice(0, -4) + '.OGG';
+    const bytes = Module.webYuno.cachedAsset(key);
+    if (!bytes) return 0;
+    const pointer = _malloc(bytes.length);
+    HEAPU8.set(bytes, pointer);
+    HEAPU32[size >> 2] = bytes.length;
+    return pointer;
+});
+EM_ASYNC_JS(uint8_t *, web_file_read, (const char *name, uint32_t *size), {
+    let key = UTF8ToString(name).split(String.fromCharCode(92)).join('/').toUpperCase();
+    if (!Module.webYuno.manifest.assets[key] && key.endsWith('.WAV'))
+        key = key.slice(0, -4) + '.OGG';
+    const bytes = await Module.webYuno.asset(key);
+    if (!bytes) return 0;
+    const pointer = _malloc(bytes.length);
+    HEAPU8.set(bytes, pointer);
+    HEAPU32[size >> 2] = bytes.length;
+    return pointer;
+});
+#endif
 
 static struct archive *arc[NR_ASSET_TYPES] = {0};
 
@@ -134,6 +159,18 @@ bool asset_set_voice4_archive(const char *name)
 
 struct archive_data *asset_fs_load(const char *_name)
 {
+#ifdef __EMSCRIPTEN__
+	struct archive_data *web_file = xcalloc(1, sizeof(struct archive_data) + strlen(_name) + 1);
+	web_file->data = web_file_read_cached(_name, &web_file->size);
+	if (!web_file->data)
+		web_file->data = web_file_read(_name, &web_file->size);
+	if (!web_file->data) { free(web_file); return NULL; }
+	web_file->name = (char *)(web_file + 1);
+	strcpy(web_file->name, _name);
+	web_file->ref = 1;
+	web_file->allocated = true;
+	return web_file;
+#endif
 	// convert to *nix path
 	char *name = xstrdup(_name);
 	for (char *p = name; *p; p++) {

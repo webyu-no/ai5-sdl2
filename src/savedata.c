@@ -26,11 +26,15 @@
 #include "memory.h"
 #include "savedata.h"
 #include "vm.h"
+#include "web.h"
 
 static void close_save(FILE *f)
 {
 	if (fclose(f))
 		WARNING("fclose: %s", strerror(errno));
+#ifdef __EMSCRIPTEN__
+	web_sync_saves();
+#endif
 }
 
 // XXX: Save files should be shipped with the game, but if not we create them.
@@ -50,6 +54,17 @@ static void create_save(const char *save_name)
 
 static FILE *open_save(const char *save_name, const char *mode)
 {
+#ifdef __EMSCRIPTEN__
+	// All progress, resume and jewel saves live in the browser's private save store.
+	// Never resolve these against the packaged game assets.
+	char web_path[32];
+	if (strlen(save_name) != 6 || strncmp(save_name, "FLAG", 4)
+			|| save_name[4] < '0' || save_name[4] > '9'
+			|| save_name[5] < '0' || save_name[5] > '9')
+		VM_ERROR("Invalid browser save name: %s", save_name);
+	snprintf(web_path, sizeof(web_path), "/saves/%s", save_name);
+	save_name = web_path;
+#endif
 	char *path = path_get_icase(save_name);
 	if (!path) {
 		create_save(save_name);
@@ -95,6 +110,9 @@ void savedata_resume_load(const char *save_name)
 {
 	savedata_read(save_name, memory_raw, 0, game->mem16_size);
 	game->mem_restore();
+#ifdef __EMSCRIPTEN__
+	web_scene_enter(mem_mes_name());
+#endif
 	vm_load_mes(mem_mes_name());
 	vm_flag_on(FLAG_RETURN);
 }

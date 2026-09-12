@@ -15,6 +15,9 @@
  */
 
 #include <SDL.h>
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#endif
 
 #include "nulib.h"
 
@@ -276,6 +279,12 @@ static void controller_update_analog(void)
 	}
 
 	// get current cursor position
+#ifdef __EMSCRIPTEN__
+	unsigned cursor_x, cursor_y;
+	cursor_get_pos(&cursor_x, &cursor_y);
+	cursor_set_pos(clamp(0.0f, (float)(gfx_view.w-1), cursor_x + stick_x * config.controller.cursor_speed),
+			clamp(0.0f, (float)(gfx_view.h-1), cursor_y + stick_y * config.controller.cursor_speed));
+#else
 	int mouse_ix, mouse_iy;
 	float mouse_fx, mouse_fy;
 	SDL_GetMouseState(&mouse_ix, &mouse_iy);
@@ -293,6 +302,7 @@ static void controller_update_analog(void)
 
 	if (mouse_ix != move_ix || mouse_iy != move_iy)
 		SDL_WarpMouseInWindow(gfx.window, move_ix, move_iy);
+#endif
 }
 
 void handle_window_event(struct SDL_WindowEvent *e)
@@ -323,6 +333,10 @@ static bool active_controller(int which)
 
 void handle_events(void)
 {
+#ifdef __EMSCRIPTEN__
+	extern void cursor_web_tick(void);
+	cursor_web_tick();
+#endif
 	SDL_Event e;
 	while (SDL_PollEvent(&e)) {
 		if (game->handle_event && game->handle_event(&e))
@@ -339,8 +353,10 @@ void handle_events(void)
 			case SDLK_F10:    gfx_screenshot(); break;
 			case SDLK_F11:    gfx_window_toggle_fullscreen(); break;
 			case SDLK_F12:    if (debug_on_F12) dbg_repl(); break;
+#ifndef __EMSCRIPTEN__
 			case SDLK_MINUS:  gfx_window_decrease_integer_size(); break;
 			case SDLK_EQUALS: gfx_window_increase_integer_size(); break;
+#endif
 			}
 			break;
 		case SDL_KEYUP:
@@ -392,7 +408,11 @@ void handle_events(void)
 
 void vm_delay(int ms)
 {
+#ifdef __EMSCRIPTEN__
+	web_delay(ms > 0 ? ms : 0);
+#else
 	SDL_Delay(ms);
+#endif
 }
 
 uint32_t vm_get_ticks(void)

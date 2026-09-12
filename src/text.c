@@ -123,7 +123,9 @@ static struct font *font_insert(int size, TTF_Font *id, TTF_Font *id_outline)
 
 static void init_ui_font(void)
 {
-#ifdef EMBED_TAHOMA
+#ifdef __EMSCRIPTEN__
+	font_spec[FONT_UI].path = xstrdup("/game/msgothic.ttc");
+#elif defined(EMBED_TAHOMA)
 	font_spec[FONT_UI] = EMBEDDED_FONT(tahoma);
 #else
 	font_spec[FONT_UI].path = xstrdup(AI5_DATA_DIR "/fonts/wine_tahoma.ttf");

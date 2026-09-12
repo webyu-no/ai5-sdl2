@@ -29,6 +29,15 @@
 #include "cursor.h"
 #include "gfx_private.h"
 #include "input.h"
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#define SDL_CreateColorCursor web_color_cursor
+#define SDL_CreateCursor web_mono_cursor
+#define SDL_CreateSystemCursor web_system_cursor
+#define SDL_SetCursor web_set_cursor
+#define SDL_FreeCursor web_free_cursor
+#define SDL_ShowCursor web_show_cursor
+#endif
 
 #pragma pack(1)
 
@@ -732,6 +741,17 @@ static bool cursor_loaded = false;
 static atomic_uint cursor_nr_frames = 2;
 static atomic_uint cursor_frame = 0;
 static atomic_uint cursor_frame_time[CURSOR_MAX_FRAMES] = { 500, 500 };
+#ifdef __EMSCRIPTEN__
+void cursor_web_tick(void)
+{
+	static uint32_t last;
+	uint32_t now = SDL_GetTicks();
+	if (now - last >= cursor_frame_time[cursor_frame]) {
+		cursor_swap();
+		last = now;
+	}
+}
+#endif
 
 static int nr_icons = 0;
 static SDL_Surface **icons = NULL;
@@ -914,7 +934,9 @@ void cursor_init(const char *exe_path)
 	read_cursors(&buf, root);
 	atexit(cursor_fini);
 
+#ifndef __EMSCRIPTEN__
 	SDL_AddTimer(cursor_frame_time[0], anim_cb, NULL);
+#endif
 
 	free_resources(root);
 	free(buf.buf);
@@ -1002,13 +1024,20 @@ void cursor_set_pos(unsigned x, unsigned y)
 	CURSOR_LOG("cursor_set_pos(%u,%u)", x, y);
 	if (config.no_warp_mouse)
 		return;
+#ifdef __EMSCRIPTEN__
+	web_cursor_warp(x, y);
+#else
 	int wx, wy;
 	SDL_RenderLogicalToWindow(gfx.renderer, x, y, &wx, &wy);
 	SDL_WarpMouseInWindow(gfx.window, wx, wy);
+#endif
 }
 
 void cursor_get_pos(unsigned *x_out, unsigned *y_out)
 {
+#ifdef __EMSCRIPTEN__
+	web_cursor_pos(x_out, y_out);
+#else
 	int x, y;
 	SDL_GetMouseState(&x, &y);
 
@@ -1016,6 +1045,7 @@ void cursor_get_pos(unsigned *x_out, unsigned *y_out)
 	SDL_RenderWindowToLogical(gfx.renderer, x, y, &fx, &fy);
 	*x_out = fx < 0 ? 0 : (fx >= gfx_view.w ? gfx_view.w - 1 : (unsigned)fx);
 	*y_out = fy < 0 ? 0 : (fy >= gfx_view.h ? gfx_view.h - 1 : (unsigned)fy);
+#endif
 }
 
 void cursor_swap(void)

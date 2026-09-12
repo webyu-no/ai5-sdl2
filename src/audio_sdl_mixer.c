@@ -53,10 +53,20 @@ void audio_fini(void)
 void audio_init(void)
 {
 	Mix_Init(0);
-	if (Mix_OpenAudio(44100, AUDIO_S16LSB, 2, 2048) < 0) {
+	int chunk_size = 2048;
+#ifdef __EMSCRIPTEN__
+	// Keep browser playback start/stop and channel completion close to the
+	// script clock instead of quantizing them to a ~46 ms mixer buffer.
+	chunk_size = 512;
+#endif
+	if (Mix_OpenAudio(44100, AUDIO_S16LSB, 2, chunk_size) < 0) {
 		ERROR("Mix_OpenAudio");
 	}
 	atexit(audio_fini);
+#ifdef __EMSCRIPTEN__
+	extern void web_audio_init(void);
+	web_audio_init();
+#endif
 }
 
 static void channel_stop(struct channel *ch)

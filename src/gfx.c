@@ -29,6 +29,11 @@
 #include "game.h"
 #include "gfx_private.h"
 #include "vm.h"
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#define SDL_RenderPresent web_present
+#define SDL_Delay web_delay
+#endif
 
 #define gfx_decode_direct(color) _gfx_decode_direct(color, __func__)
 static inline SDL_Color _gfx_decode_direct(uint32_t color, const char *func)
@@ -341,11 +346,15 @@ static void gfx_fini(void)
 void gfx_init(const char *name)
 {
 	char title[2048];
+#ifdef __EMSCRIPTEN__
+	strcpy(title, "Web YU-NO");
+#else
 	if (name) {
 		snprintf(title, 2048, "%s - AI5-SDL2", name);
 	} else {
 		strcpy(title, "AI5-SDL2");
 	}
+#endif
 	// XXX: shuusaku view size differs from surface[0] size
 	if (game->view.w && game->view.h) {
 		gfx_view.w = game->view.w;
@@ -360,9 +369,15 @@ void gfx_init(const char *name)
 #endif
 	if (config.controller.enabled)
 		SDL_CALL(SDL_InitSubSystem, SDL_INIT_GAMECONTROLLER);
+	unsigned window_flags = SDL_WINDOW_RESIZABLE;
+#ifdef __EMSCRIPTEN__
+	// Keep the source framebuffer at 640x400; the web renderer handles resizing.
+	window_flags = 0;
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+#endif
 	SDL_CTOR(SDL_CreateWindow, gfx.window, title,
 			SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, gfx_view.w, gfx_view.h,
-			SDL_WINDOW_RESIZABLE);
+			window_flags);
 	gfx.window_id = SDL_GetWindowID(gfx.window);
 	SDL_CTOR(SDL_CreateRenderer, gfx.renderer, gfx.window, -1, 0);
 	SDL_CALL(SDL_SetRenderDrawColor, gfx.renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);

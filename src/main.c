@@ -40,8 +40,16 @@
 #include "input.h"
 #include "memory.h"
 #include "vm.h"
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#endif
 
+#ifdef __EMSCRIPTEN__
+#include <limits.h>
+#include "version.h"
+#else
 #include "../version.h"
+#endif
 
 #define DEFAULT_MSG_SKIP_DELAY 16
 struct config config = {
@@ -368,6 +376,14 @@ static _Noreturn void _usage_error(const char *fmt, ...)
 
 static void set_game(const char *name)
 {
+#ifdef WEB_YUNO_ONLY
+	if (strcmp(name, "yuno") && strcmp(name, "yuno-eng"))
+		sys_error("Game \"%s\" not supported by this build", name);
+	yuno_eng = true;
+	ai5_set_game("yuno");
+	game = &game_yuno;
+	return;
+#else
 	if (!strcmp(name, "yuno-eng")) {
 		yuno_eng = true;
 		name = "yuno";
@@ -416,6 +432,7 @@ static void set_game(const char *name)
 	default:
 		sys_error("Game \"%s\" not supported", name);
 	}
+#endif
 }
 
 static bool set_game_from_config(void)
@@ -479,6 +496,11 @@ static char saved_cwd[PATH_MAX];
 
 void restart(void)
 {
+#ifdef __EMSCRIPTEN__
+	extern void web_restart(void);
+	web_restart();
+	return;
+#endif
 	if (saved_cwd[0] && chdir(saved_cwd))
 		ERROR("chdir(\"%s\"): %s", saved_cwd, strerror(errno));
 	execv(saved_argv[0], saved_argv);
@@ -494,7 +516,14 @@ int main(int argc, char *argv[])
 	}
 
 	ai5_target_game = -1;
+#ifdef __EMSCRIPTEN__
+	// Web YU-NO is a single-game build. Do not infer the English variant from
+	// the INI title; select it before parsing the supplied configuration.
+	set_game("yuno-eng");
+	bool have_game = true;
+#else
 	bool have_game = false;
+#endif
 	char *ini_name = NULL;
 	bool debug = false;
 
@@ -707,6 +736,9 @@ int main(int argc, char *argv[])
 
 	// execute start mes file
 	vm_load_mes(config.start_mes);
+#ifdef __EMSCRIPTEN__
+	web_scene_enter(config.start_mes);
+#endif
 	if (debug)
 		dbg_repl();
 	game->vm.exec();

@@ -495,12 +495,27 @@ void anim_execute(void)
 	if (t - anim_prev_frame_t < anim_frame_t)
 		return;
 
+	unsigned elapsed_frames = 1;
+#ifdef __EMSCRIPTEN__
+	elapsed_frames = (t - anim_prev_frame_t) / anim_frame_t;
+	// Catch ordinary browser scheduling misses without attempting to replay a
+	// long backlog after a background tab has been suspended.
+	if (elapsed_frames > 8) {
+		elapsed_frames = 1;
+		anim_prev_frame_t = t;
+	} else {
+		anim_prev_frame_t += elapsed_frames * anim_frame_t;
+	}
+#else
 	anim_prev_frame_t = t;
-	for (int i = 0; i < ANIM_MAX_STREAMS; i++) {
-		struct anim_stream *anim = &streams[i];
-		if (anim->state == ANIM_STATE_HALTED || anim->state == ANIM_STATE_PAUSED)
-			continue;
-		anim_stream_execute(anim);
+#endif
+	for (unsigned step = 0; step < elapsed_frames; step++) {
+		for (int i = 0; i < ANIM_MAX_STREAMS; i++) {
+			struct anim_stream *anim = &streams[i];
+			if (anim->state == ANIM_STATE_HALTED || anim->state == ANIM_STATE_PAUSED)
+				continue;
+			anim_stream_execute(anim);
+		}
 	}
 }
 
